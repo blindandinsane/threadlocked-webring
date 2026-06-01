@@ -1,0 +1,110 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"math/rand"
+	"net/http"
+	"os"
+)
+
+type WebringEntry struct {
+	Name string `json:"name"`
+	Url  string `json:"url"`
+}
+
+func main() {
+	webringRaw, err := os.ReadFile("webring.json")
+	if err != nil {
+		slog.Error("failed to read webring json file")
+		os.Exit(1)
+	}
+
+	var webring []WebringEntry
+	if err := json.Unmarshal(webringRaw, &webring); err != nil {
+		slog.Error("failed to unmarshal webring json file", "error", err)
+		os.Exit(1)
+	}
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("uwu"))
+	})
+
+	http.HandleFunc("/webring", func(w http.ResponseWriter, r *http.Request) {
+		buildJsonResponse(w, http.StatusOK, webring)
+	})
+
+	http.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
+		from := r.URL.Query().Get("from")
+		if from == "" {
+			buildJsonResponse(w, http.StatusBadRequest, map[string]string{
+				"error": "missing `from` query parameter",
+			})
+			return
+		}
+
+		dir := r.URL.Query().Get("dir")
+		if dir == "" {
+			buildJsonResponse(w, http.StatusBadRequest, map[string]string{
+				"error": "missing `dir` query parameter",
+			})
+			return
+		}
+
+		if dir != "next" && dir != "prev" {
+			buildJsonResponse(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid `dir` query parameter. it can be either `next` or `prev` only",
+			})
+			return
+		}
+
+		index := -1
+		for i, v := range webring {
+			if v.Name == from {
+				index = i
+				break
+			}
+		}
+
+		if index == -1 {
+			buildJsonResponse(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid `from` query parameter. can't find any webring entry's name as `from`",
+			})
+			return
+		}
+
+		url := ""
+
+		if dir == "prev" {
+			if index == 0 {
+				url = webring[len(webring)-1].Url
+			} else {
+				url = webring[index-1].Url
+			}
+		} else {
+			if index == len(webring)-1 {
+				url = webring[0].Url
+			} else {
+				url = webring[index+1].Url
+			}
+		}
+
+		http.Redirect(w, r, url, http.StatusMovedPermanently)
+	})
+
+	http.HandleFunc("/random", func(w http.ResponseWriter, r *http.Request) {
+		index := rand.Intn(len(webring))
+		http.Redirect(w, r, webring[index].Url, http.StatusFound)
+	})
+
+	http.ListenAndServe(":8080", nil)
+	fmt.Println("server is up and running at :8080")
+}
+
+func buildJsonResponse(w http.ResponseWriter, statusCode int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(v)
+}
