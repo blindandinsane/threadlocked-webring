@@ -21,6 +21,7 @@ import (
 type WebringEntry struct {
 	Name string `json:"name"`
 	Url  string `json:"url"`
+	Gh   string `json:"gh"`
 }
 
 //go:embed webring.json
