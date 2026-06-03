@@ -56,6 +56,10 @@ func main() {
 		}
 	})
 
+	http.HandleFunc("/webring", func(w http.ResponseWriter, r *http.Request) {
+		buildJsonResponse(w, http.StatusOK, webring)
+	})
+
 	http.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
 		from := r.URL.Query().Get("from")
 		if from == "" {
