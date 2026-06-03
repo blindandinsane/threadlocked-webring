@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -23,6 +25,10 @@ type WebringEntry struct {
 
 //go:embed webring.json
 var webringRaw []byte
+
+//go:embed index.html
+var indexRaw string
+
 var hostsToIgnore = []string{"ring.seggs.lol", "seggs.lol", "www.seggs.lol"}
 
 func initial(s string) string {
@@ -32,6 +38,14 @@ func initial(s string) string {
 	return ""
 }
 
+func host(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return strings.TrimPrefix(u.Host, "www.")
+}
+
 func main() {
 	var webring []WebringEntry
 	if err := json.Unmarshal(webringRaw, &webring); err != nil {
@@ -39,11 +53,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
+	indexTmpl, err := template.New("index").Funcs(template.FuncMap{
+		"initial": initial,
+		"host":    host,
+	}).Parse(indexRaw)
+	if err != nil {
+		slog.Error("failed to parse index template", "error", err)
+		os.Exit(1)
+	}
 
-		if strings.HasSuffix(host, ".seggs.lol") && !slices.Contains(hostsToIgnore, host) {
-			sub := strings.TrimSuffix(host, ".seggs.lol")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		reqHost := r.Host
+
+		if strings.HasSuffix(reqHost, ".seggs.lol") && !slices.Contains(hostsToIgnore, reqHost) {
+			sub := strings.TrimSuffix(reqHost, ".seggs.lol")
 			for _, entry := range webring {
 				if entry.Name == sub {
 					http.Redirect(w, r, entry.Url, http.StatusFound)
@@ -53,6 +76,16 @@ func main() {
 
 			http.Error(w, "not found", http.StatusNotFound)
 			return
+		}
+
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := indexTmpl.Execute(w, webring); err != nil {
+			slog.Error("failed to render index", "error", err)
 		}
 	})
 
